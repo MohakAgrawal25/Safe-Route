@@ -1,0 +1,174 @@
+SafeRoute AI Project Workflow
+=================================
+
+1. Problem Analysis
+-------------------
+The project addresses a real-world pedestrian routing problem in Chicago: users want a route that is not only the shortest distance, but also safer in terms of historical crime exposure. The system compares two routes:
+
+- Route A: the shortest path between a selected start and destination
+- Route B: a crime-aware alternative that may detour slightly to reduce exposure to historically risky areas
+
+The core challenge is to keep routing within a defined 7 km Chicago study area, avoid databases, and ensure routes stay on real streets instead of cutting through buildings. The app was designed for a local, fast, self-contained workflow that does not depend on any external database or third-party routing engine.
+
+Key project goals:
+- Keep all data local and lightweight
+- Compare shortest path vs safer alternative
+- Restrict all analysis to a defined Chicago study circle
+- Generate roads and routes from local geometry
+- Visualize crime hotspots and routes on a map
+- Provide a navigation-only experience without analytics or model tabs
+
+2. Data Preprocessing
+----------------------
+The system depends on local crime and street data prepared before routing begins.
+
+Crime data flow:
+- Chicago crime records are loaded from the local CSV dataset in the backend
+- Records are normalized and converted into consistent fields such as date, latitude, longitude, primary_type, severity_weight, and distance_from_center_m
+- Data is filtered to the configured Chicago study area
+- Duplicates, invalid values, and formatting issues are cleaned in memory
+- A spatial index is built so hotspot generation and route-risk analysis can be computed efficiently
+
+Street network flow:
+- The system uses a local road network built from Chicago street centerlines
+- The graph is created from street geometry and segment connectivity rather than a synthetic grid
+- Road nodes and edges are stored in memory
+- Endpoint snapping is performed so selected locations are mapped to nearby valid roads
+- The graph is filtered to the largest connected walkable network to avoid invalid routing behavior
+
+Spatial risk flow:
+- Crime incidents are weighted by severity and category
+- Hotspot clusters are generated from incident density
+- Historical exposure is approximated using nearby crime intensity around route segments
+- Risk values are normalized and limited so they remain useful for route selection without saturating the system
+
+Important project rule:
+- No database is used in the application lifecycle.
+- The app uses in-memory objects and local CSV-backed data only.
+
+3. Model Development
+---------------------
+The project uses a lightweight risk-aware navigation model instead of a large ML pipeline.
+
+Core idea:
+- A shortest walking path is computed first
+- A second route is then evaluated with a crime-aware objective using a weighted risk penalty
+- The system balances distance and safety using parameters such as:
+  - risk_weight_lambda
+  - max_detour_ratio
+  - buffer_meters
+
+Route model structure:
+- The network graph stores valid road segments
+- Start and destination coordinates are snapped to the nearest road segment
+- Shortest path is computed using network distance
+- Crime exposure along each candidate route is calculated based on nearby incidents and hotspot influence
+- A safer route is selected only when it is feasible, within detour bounds, and meaningfully lower in risk
+
+Risk scoring logic:
+- Historical incidents influence route exposure
+- High-severity crimes contribute more strongly than low-severity ones
+- Nearby hotspot clusters increase exposure score
+- A route is considered safer when its overall historical risk index is lower than the shortest route, within the allowed detour tolerance
+
+Decision logic:
+- If a safer route exists and remains within the user-defined detour threshold, Route B is recommended
+- If no valid lower-risk route exists, the app can keep Route B equal to Route A or explain that no safer alternative was found
+- This avoids false claims and keeps route explanation honest
+
+Files involved in this stage:
+- backend/road_network.py
+- backend/routing_engine.py
+- backend/spatial_index.py
+- backend/spatial_utils.py
+- backend/ml_engine.py
+- backend/models.py
+
+4. Model Deployment
+-------------------
+The project is deployed as a local web application with a Python backend and React frontend.
+
+Backend deployment flow:
+- FastAPI starts the application in backend/main.py
+- During startup, the system loads the local crime CSV and initializes the spatial index, road network, and route engine
+- API endpoints provide:
+  - health status
+  - study area info
+  - crime records
+  - hotspot data
+  - route comparison
+  - data refresh
+
+Core API endpoints:
+- GET /api/health
+- GET /api/study-area
+- GET /api/crimes
+- GET /api/crime-hotspots
+- POST /api/routes/compare
+- GET /api/model/metrics
+- POST /api/data/refresh
+
+Frontend deployment flow:
+- React app loads route inputs and map interface
+- User selects start and destination points inside the study boundary
+- The frontend sends route parameters to the backend
+- The backend computes Route A and Route B
+- Returned geometry and metadata are rendered on the map
+- Route overlays, markers, hotspots, and boundary circles update visually
+
+Deployment characteristics:
+- No database is used in runtime deployment
+- No external route provider is required
+- All route calculations happen in local Python code
+- The application is designed around local, fast, small-scale urban navigation in Chicago
+
+Main deployment files:
+- backend/main.py
+- frontend/src/App.jsx
+- frontend/src/components/InteractiveMap.jsx
+- frontend/src/components/NavigationPanel.jsx
+- frontend/src/components/RouteComparisonCard.jsx
+
+5. Project Knowledge
+--------------------
+This project is a crime-aware pedestrian navigation system for Chicago, focused on city-scale route planning inside a 7 km study area.
+
+Project architecture:
+- Backend: Python + FastAPI
+- Frontend: React + Vite + Leaflet
+- Data layer: local CSV files + in-memory processing
+- Routing engine: graph-based street navigation with safety weighting
+- Visualization: map overlays for routes, hotspots, crimes, and boundary
+
+Key concepts to remember:
+- Study area is anchored around Chicago coordinates near the city center
+- All route operations are constrained to the circle boundary
+- Crime exposure is historical, not predictive in a complex ML sense
+- Navigation is intentionally simple and local, with emphasis on road-aware routing
+- The system is designed around user trust and honest route explanations
+
+Key files by responsibility:
+- backend/config.py                  - study area and config settings
+- backend/data_ingestion.py          - loads crime records from local CSV/source
+- backend/road_network.py            - road graph creation and snapping
+- backend/routing_engine.py          - route computation and safety logic
+- backend/spatial_index.py           - hotspot and exposure calculation
+- backend/ml_engine.py               - model-like risk training metrics
+- backend/main.py                    - FastAPI application and endpoints
+- frontend/src/App.jsx               - main app state and route flow
+- frontend/src/components/InteractiveMap.jsx - map rendering and route overlays
+- frontend/src/components/NavigationPanel.jsx - user inputs and settings
+- tests/test_routing.py              - route correctness and regression checks
+
+End-to-end workflow summary:
+1. User chooses origin and destination
+2. Frontend validates the points within the Chicago study area
+3. Route request is sent to backend API
+4. Backend snaps endpoints onto nearest valid road segments
+5. Shortest path and crime-aware alternative are computed
+6. Exposure and detour metrics are evaluated
+7. Route result is returned with explanation and disclaimer
+8. Frontend renders both routes and relevant risk markers on the map
+9. User sees a safe route recommendation, if one exists within constraints
+
+This is a complete local workflow for a road-aware, crime-conscious pedestrian navigation system that remains fast, explainable, and independent of external databases.
